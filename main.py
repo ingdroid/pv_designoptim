@@ -3,50 +3,56 @@ from pydantic import BaseModel
 import torch
 import torch.nn as nn
 
-app = FastAPI(title="PV ML Optimizer API -INGAWA")
+app = FastAPI(title="PV ML Optimizer API")
 
-# --- 1. DEFINE THE PYTORCH MODEL ---
-# A very simple neural network that takes 2 inputs and gives 1 output
+# --- 1. PYTORCH MODEL ARCHITECTURE ---
+# Must match your Colab training architecture exactly (16 hidden neurons)
 class SolarOptimizerNet(nn.Module):
     def __init__(self):
         super().__init__()
-        # A simple linear layer
-        self.linear = nn.Linear(in_features=2, out_features=1)
+        self.network = nn.Sequential(
+            nn.Linear(2, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1)
+        )
 
     def forward(self, x):
-        return self.linear(x)
+        return self.network(x)
 
-# Initialize the model 
-# (In a real app, you would load your pre-trained weights here)
+# Initialize the model and load the weights using the requested filename
 model = SolarOptimizerNet()
+model.load_state_dict(torch.load('solar_model_weights.pth', map_location=torch.device('cpu'), weights_only=True))
+model.eval() # Put the model in evaluation mode to lock weights
 
 # --- 2. DEFINE THE INCOMING DATA ---
 class SolarData(BaseModel):
     irradiance: float
     temperature: float
-    panel_efficiency: float
+    panel_efficiency: float 
 
 # --- 3. THE API ENDPOINT ---
 @app.post("/optimize")
 def get_optimization(data: SolarData):
-    # Convert the incoming Termux data into a PyTorch Tensor
-    # We are feeding it Irradiance and Temperature
-    input_tensor = torch.tensor([[data.irradiance, data.temperature]], dtype=torch.float32)
+    # NORMALIZATION: Scale inputs exactly like we did during training
+    scaled_irradiance = data.irradiance / 1000.0
+    scaled_temp = data.temperature / 50.0
     
-    # Run the PyTorch model prediction (without tracking gradients to save memory)
+    input_tensor = torch.tensor([[scaled_irradiance, scaled_temp]], dtype=torch.float32)
+    
+    # Run the PyTorch prediction safely without gradient tracking
     with torch.no_grad():
         prediction = model(input_tensor)
     
-    # Extract the actual number from the PyTorch Tensor
-    ml_power = prediction.item()
+    # DENORMALIZATION: Convert the scaled network decimal back to real Watts
+    ml_power_watts = prediction.item() * 1000.0
 
     return {
         "status": "success",
-        "message": "Calculated by PyTorch in the cloud!",
-        "predicted_power": round(ml_power, 2)
+        "message": "Predicted by the upgraded Deep Learning model!",
+        "predicted_power_watts": round(ml_power_watts, 2)
     }
 
 # --- 4. HOMEPAGE ---
 @app.get("/")
 def home():
-    return {"message": "My PyTorch API is alive and ready!"}
+    return {"message": "Upgraded PyTorch API is live!"}
